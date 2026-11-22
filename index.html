@@ -465,7 +465,7 @@ Good luck — you've got this.`;
     try{
       stream = await navigator.mediaDevices.getUserMedia({
         video:{ facingMode:'user', width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30} },
-        audio:{ echoCancellation:true, noiseSuppression:true }
+        audio: true
       });
       cam.srcObject = stream;
       try{ await cam.play(); }catch(e){}
@@ -478,15 +478,28 @@ Good luck — you've got this.`;
       return false;
     }
   }
+  async function ensureMic(){
+    if (!stream) return false;
+    const live = () => stream.getAudioTracks().some(t => t.readyState === 'live');
+    if (live()) return true;
+    try{
+      const a = await navigator.mediaDevices.getUserMedia({ audio: true });
+      a.getAudioTracks().forEach(t => stream.addTrack(t));
+    }catch(e){}
+    return live();
+  }
   function stopCamera(){
     if (stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
     cam.srcObject = null;
   }
 
+  const isAppleWebKit = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+    (/Safari/.test(navigator.userAgent) && !/Chrome|CriOS|FxiOS|Android/.test(navigator.userAgent));
   function pickType(){
     if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
-    const types = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1,mp4a','video/mp4',
-                   'video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+    if (isAppleWebKit) return '';   // Safari's own default (MP4 with AAC sound) is the most reliable
+    const types = ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/mp4;codecs=avc1,mp4a','video/webm','video/mp4'];
     return types.find(t => MediaRecorder.isTypeSupported(t)) || '';
   }
 
@@ -507,18 +520,21 @@ Good luck — you've got this.`;
   async function startRec(){
     if (!(await startCamera())) return;
     if (!window.MediaRecorder){ camMsg("Recording isn't supported in this browser. Try Safari on iPhone or Chrome on Android."); return; }
+    const micOK = await ensureMic();
+    if (!micOK) camMsg("The microphone is blocked, so this take will have no sound. To fix it: iPhone Settings → Apps → Safari → Microphone → Allow, then reopen the app.");
     pos = 0; elapsed = 0; render();
     $('rec').classList.add('on'); $('recLabel').textContent = 'Cancel';
     countdownThen(() => {
       chunks = []; recType = pickType();
       try{
-        rec = new MediaRecorder(stream, recType ? { mimeType: recType, videoBitsPerSecond: 6000000 } : undefined);
+        rec = isAppleWebKit ? new MediaRecorder(stream)
+            : new MediaRecorder(stream, recType ? { mimeType: recType, videoBitsPerSecond: 6000000, audioBitsPerSecond: 128000 } : undefined);
       }catch(e){
         try{ rec = new MediaRecorder(stream); }catch(e2){ camMsg("Couldn't start recording on this device."); setRecUI(false); return; }
       }
       rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
       rec.onstop = finishRec;
-      rec.start(1000);
+      rec.start();
       recStartAt = Date.now();
       setRecUI(true);
       requestWake();
@@ -544,7 +560,7 @@ Good luck — you've got this.`;
     const d = new Date(), z = n => String(n).padStart(2,'0');
     const name = `teleprompter-${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.${ext}`;
     if (take) URL.revokeObjectURL(take.url);
-    take = { blob, name, type, url: URL.createObjectURL(blob) };
+    take = { blob, name, type, url: URL.createObjectURL(blob), noAudio: !(stream && stream.getAudioTracks().some(t => t.readyState === 'live')) };
     showReview();
   }
 
@@ -557,6 +573,7 @@ Good luck — you've got this.`;
     $('saveNote').textContent = canShare
       ? `${mb} MB · "Save to Photos" opens the share menu — choose Save Video.`
       : `${mb} MB · Download saves the video to your phone's Downloads/Files.`;
+    if (take.noAudio) $('saveNote').textContent = '⚠ No sound was captured in this take. ' + $('saveNote').textContent;
     $('discard').textContent = 'Delete'; delArmed = false;
     $('review').classList.remove('hidden');
   }

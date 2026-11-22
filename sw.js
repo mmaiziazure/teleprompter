@@ -1,5 +1,5 @@
 // Offline support: cache the app files, serve from cache, refresh in background.
-const CACHE = 'teleprompter-v2';
+const CACHE = 'teleprompter-v3';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png',
                'icon-maskable-512.png', 'apple-touch-icon.png', 'favicon.png'];
 
