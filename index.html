@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0b0b0c">
+<title>Teleprompter</title>
+<meta name="description" content="A free, simple teleprompter for your phone. Paste your script, set the speed, and read.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Teleprompter">
+<style>
+  :root{
+    --bg:#0b0b0c; --panel:#151517; --line:#26262a; --text:#f4f1ea; --muted:#8d8a84;
+    --accent:#ffb347; --accent-ink:#1a1206;
+    --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
+    --safe-l:env(safe-area-inset-left,0px); --safe-r:env(safe-area-inset-right,0px);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overscroll-behavior:none}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+  .hidden{display:none!important}
+
+  /* ---------- Editor ---------- */
+  #editor{display:flex;flex-direction:column;height:100%;
+    padding:calc(var(--safe-t) + 14px) calc(var(--safe-r) + 16px) calc(var(--safe-b) + 16px) calc(var(--safe-l) + 16px);gap:14px}
+  header{display:flex;align-items:baseline;justify-content:space-between}
+  h1{font-size:22px;margin:0;letter-spacing:-.01em}
+  h1 span{color:var(--accent)}
+  .meta{color:var(--muted);font-size:13px}
+  textarea{font-family:inherit;flex:1;width:100%;resize:none;background:var(--panel);color:var(--text);border:1px solid var(--line);
+    border-radius:14px;padding:16px;font-size:17px;line-height:1.5;outline:none}
+  textarea:focus{border-color:#3a3a40}
+  .row{display:flex;gap:10px}
+  .btn{flex:1;padding:14px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font-size:15px;font-weight:600}
+  .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-size:17px}
+  .settings{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px 14px}
+  .set{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .set:last-child{border-bottom:0}
+  .set label{font-size:15px}
+  .set output{color:var(--muted);font-variant-numeric:tabular-nums;min-width:44px;text-align:right;font-size:14px}
+  .set input[type=range]{flex:1;max-width:55%;accent-color:var(--accent)}
+  .toggle{position:relative;width:50px;height:30px;border-radius:15px;background:#333;transition:.2s;flex:none}
+  .toggle::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s}
+  .toggle[aria-pressed=true]{background:var(--accent)}
+  .toggle[aria-pressed=true]::after{left:23px}
+
+  /* ---------- Prompter ---------- */
+  #prompter{position:fixed;inset:0;background:#000;overflow:hidden;touch-action:none}
+  #stage{position:absolute;inset:0;overflow:hidden}
+  #scroller{position:absolute;left:0;right:0;top:0;will-change:transform}
+  #script{margin:0 auto;white-space:pre-wrap;word-wrap:break-word;font-weight:600;color:#fff;
+    padding-top:var(--lead);padding-bottom:100vh}
+  #prompter.mirror #stage{transform:scaleX(-1)}
+  #prompter.flipv #stage{transform:scaleY(-1)}
+  #prompter.mirror.flipv #stage{transform:scale(-1,-1)}
+  #guide{position:absolute;left:0;right:0;pointer-events:none;border-top:2px solid rgba(255,179,71,.55);
+    box-shadow:0 0 0 100vmax rgba(0,0,0,0)}
+  #guide::before,#guide::after{content:"";position:absolute;top:-9px;border:8px solid transparent}
+  #guide::before{left:4px;border-left-color:var(--accent)}
+  #guide::after{right:4px;border-right-color:var(--accent)}
+  .fade{position:absolute;left:0;right:0;pointer-events:none}
+  .fade.top{top:0;height:18%;background:linear-gradient(#000,rgba(0,0,0,0))}
+  #progress{position:absolute;left:0;top:0;height:3px;background:var(--accent);width:0;margin-top:var(--safe-t)}
+
+  #hud{position:absolute;left:0;right:0;bottom:0;padding:12px calc(var(--safe-r) + 12px) calc(var(--safe-b) + 12px) calc(var(--safe-l) + 12px);
+    background:linear-gradient(rgba(0,0,0,0),rgba(0,0,0,.85) 35%);transition:opacity .3s}
+  #hud.faded{opacity:0;pointer-events:none}
+  .hudrow{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .hb{min-width:52px;height:52px;border-radius:26px;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;padding:0 14px}
+  .hb.play{width:68px;height:68px;border-radius:34px;background:var(--accent);color:var(--accent-ink);font-size:26px}
+  .hb small{font-size:12px;font-weight:600}
+  .speedbox{display:flex;flex-direction:column;align-items:center;font-variant-numeric:tabular-nums;min-width:56px}
+  .speedbox b{font-size:20px}
+  .speedbox span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+  #topbar{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;
+    padding:calc(var(--safe-t) + 10px) calc(var(--safe-r) + 12px) 10px calc(var(--safe-l) + 12px);transition:opacity .3s}
+  #topbar.faded{opacity:0;pointer-events:none}
+  .pill{padding:8px 14px;border-radius:18px;background:rgba(255,255,255,.12);font-size:14px;font-weight:600}
+  #timer{font-variant-numeric:tabular-nums}
+  #countdown{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:40vmin;font-weight:800;color:var(--accent);pointer-events:none}
+  /* ---------- Camera mode ---------- */
+  #cam{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);display:none;background:#000}
+  #prompter.camera #cam{display:block}
+  #prompter.camera #stage{bottom:auto;height:50%;background:linear-gradient(rgba(0,0,0,.78),rgba(0,0,0,.55) 75%,rgba(0,0,0,0));
+    -webkit-mask-image:linear-gradient(#000 78%,transparent);mask-image:linear-gradient(#000 78%,transparent)}
+  #prompter.camera .fade.top{display:none}
+  #prompter.camera #script{text-shadow:0 2px 8px rgba(0,0,0,.9)}
+  .hb.rec{display:none;background:rgba(255,255,255,.14);gap:8px;font-size:15px;padding:0 18px}
+  #prompter.camera .hb.rec{display:flex}
+  .hb.rec i{width:18px;height:18px;border-radius:50%;background:#ff3b30;display:block;transition:.2s}
+  .hb.rec.on i{border-radius:4px}
+  .hb.rec.on{background:#ff3b30;color:#fff}
+  .hb.rec.on i{background:#fff}
+  #recInd{background:#ff3b30;color:#fff;font-variant-numeric:tabular-nums}
+  #recInd::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#fff;margin-right:6px;vertical-align:1px;animation:blink 1s infinite}
+  @keyframes blink{50%{opacity:.2}}
+  #prompter.recording #topbar{opacity:1!important;pointer-events:auto!important}
+  #prompter.recording #timer{display:none}
+  #camMsg{position:absolute;left:16px;right:16px;bottom:calc(var(--safe-b) + 150px);background:rgba(20,20,22,.95);border:1px solid #ff3b30;
+    border-radius:14px;padding:14px 16px;font-size:14px;line-height:1.5;color:#eee}
+  #review{position:absolute;inset:0;background:#000;display:flex;flex-direction:column;gap:12px;z-index:5;
+    padding:calc(var(--safe-t) + 14px) calc(var(--safe-r) + 16px) calc(var(--safe-b) + 16px) calc(var(--safe-l) + 16px)}
+  #review h2{margin:0;font-size:20px}
+  #review video{flex:1;min-height:0;width:100%;border-radius:14px;background:#000;object-fit:contain}
+  #review .btn.danger{color:#ff6b61}
+  #review > .btn, #review .row{flex:none}
+  #review .note{color:var(--muted);font-size:13px;margin:0;text-align:center}
+  #hint{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);background:rgba(20,20,22,.92);border:1px solid var(--line);
+    border-radius:14px;padding:14px 18px;font-size:14px;color:#ddd;text-align:center;line-height:1.6;max-width:85%;pointer-events:none;transition:opacity .4s}
+  #install{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--accent);border-radius:14px;padding:12px 14px;font-size:14px;line-height:1.4}
+  #install img{width:40px;height:40px;border-radius:9px;flex:none}
+  #install .txt{flex:1}
+  #install b{display:block;font-size:15px}
+  #installBtn{background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:9px 14px;font-weight:700;flex:none}
+  #installX{color:var(--muted);font-size:18px;padding:4px;flex:none}
+</style>
+</head>
+<body>
+
+<!-- =============== EDITOR =============== -->
+<section id="editor">
+  <header>
+    <h1>Tele<span>prompter</span></h1>
+    <div class="meta" id="stats">0 words</div>
+  </header>
+
+  <div id="install" class="hidden">
+    <img src="icon-192.png" alt="">
+    <div class="txt"><b>Install Teleprompter</b><span id="installMsg">Add it to your home screen — free, works offline.</span></div>
+    <button id="installBtn" class="hidden">Install</button>
+    <button id="installX" aria-label="Dismiss">✕</button>
+  </div>
+
+  <textarea id="text" placeholder="Paste or type your script here…" spellcheck="true"></textarea>
+
+  <div class="settings">
+    <div class="set"><label for="speed">Speed</label><input type="range" id="speed" min="1" max="20" step="1"><output id="speedOut"></output></div>
+    <div class="set"><label for="size">Text size</label><input type="range" id="size" min="24" max="120" step="2"><output id="sizeOut"></output></div>
+    <div class="set"><label for="margin">Side margins</label><input type="range" id="margin" min="0" max="30" step="1"><output id="marginOut"></output></div>
+    <div class="set"><label for="cd">Countdown</label><input type="range" id="cd" min="0" max="10" step="1"><output id="cdOut"></output></div>
+    <div class="set"><label>Mirror (for glass rigs)</label><button class="toggle" id="mirror" aria-pressed="false" aria-label="Mirror text"></button></div>
+    <div class="set"><label>Front camera &amp; record</label><button class="toggle" id="camera" aria-pressed="false" aria-label="Front camera and recording"></button></div>
+    <div class="set"><label>Flip upside down</label><button class="toggle" id="flipv" aria-pressed="false" aria-label="Flip text vertically"></button></div>
+  </div>
+
+  <div class="row">
+    <button class="btn" id="clear">Clear</button>
+    <button class="btn" id="paste">Paste</button>
+    <button class="btn primary" id="start" style="flex:2">▶ Start</button>
+  </div>
+</section>
+
+<!-- =============== PROMPTER =============== -->
+<section id="prompter" class="hidden">
+  <video id="cam" playsinline muted autoplay></video>
+  <div id="stage">
+    <div id="scroller"><div id="script"></div></div>
+    <div class="fade top"></div>
+    <div id="guide"></div>
+  </div>
+  <div id="progress"></div>
+
+  <div id="topbar">
+    <button class="pill" id="exit">✕ Edit</button>
+    <span class="pill" id="timer">0:00 · ~0:00 left</span>
+    <span class="pill hidden" id="recInd">REC 0:00</span>
+    <button class="pill" id="restart">⟲ Top</button>
+  </div>
+
+  <div id="hud">
+    <div class="hudrow">
+      <button class="hb" id="smaller" aria-label="Smaller text"><small>A</small>−</button>
+      <button class="hb" id="slower" aria-label="Slower">−</button>
+      <button class="hb play" id="play" aria-label="Play or pause">▶</button>
+      <button class="hb" id="faster" aria-label="Faster">+</button>
+      <button class="hb" id="bigger" aria-label="Bigger text">A+</button>
+    </div>
+    <div class="hudrow" style="justify-content:center;gap:24px;margin-top:8px">
+      <button class="hb rec" id="rec" aria-label="Start or stop recording"><i></i><span id="recLabel">Record</span></button>
+      <div class="speedbox"><b id="hudSpeed">5</b><span>speed</span></div>
+    </div>
+  </div>
+
+  <div id="camMsg" class="hidden"></div>
+
+  <div id="review" class="hidden">
+    <h2>Your take</h2>
+    <video id="playback" playsinline controls></video>
+    <div class="row">
+      <button class="btn danger" id="discard">Delete</button>
+      <button class="btn" id="download">Download</button>
+      <button class="btn primary" id="shareVid" style="flex:1.6">Save to Photos</button>
+    </div>
+    <button class="btn" id="again">Record another take</button>
+    <p class="note" id="saveNote"></p>
+  </div>
+
+  <div id="countdown" class="hidden"></div>
+  <div id="hint">Tap to play / pause<br>Drag to scroll by hand<br>Double‑tap for full screen</div>
+</section>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const store = {
+    get(k, d){ try{ const v = localStorage.getItem('tp_'+k); return v===null ? d : JSON.parse(v); }catch(e){ return d; } },
+    set(k, v){ try{ localStorage.setItem('tp_'+k, JSON.stringify(v)); }catch(e){} }
+  };
+
+  const SAMPLE = `Welcome to your teleprompter.
+
+Paste your script in the editor, pick a speed and text size, then press Start.
+
+While it's running, tap anywhere to pause or resume. Drag up or down to nudge your place by hand.
+
+Use the plus and minus buttons to change speed on the fly, and A− / A+ to resize the text.
+
+Keep your eyes on the orange reading line near the top of the screen — that's where the next words arrive.
+
+If you're using a beam‑splitter glass rig, turn on Mirror so the reflection reads correctly.
+
+Good luck — you've got this.`;
+
+  const S = {
+    text:   store.get('text', SAMPLE),
+    speed:  store.get('speed', 5),
+    size:   store.get('size', 48),
+    margin: store.get('margin', 6),
+    cd:     store.get('cd', 3),
+    mirror: store.get('mirror', false),
+    flipv:  store.get('flipv', false),
+    camera: store.get('camera', false),
+  };
+
+  // ---------- Editor wiring ----------
+  const ta = $('text');
+  ta.value = S.text;
+  const words = t => (t.trim().match(/\S+/g) || []).length;
+  const fmt = s => { s = Math.max(0, Math.round(s)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
+  function updateStats(){
+    const w = words(ta.value);
+    $('stats').textContent = `${w} words · ~${fmt(w/150*60)} at 150 wpm`;
+  }
+  ta.addEventListener('input', () => { S.text = ta.value; store.set('text', S.text); updateStats(); });
+  updateStats();
+
+  function bindRange(id, key, label){
+    const el = $(id), out = $(id+'Out');
+    el.value = S[key];
+    const show = () => out.textContent = label(S[key]);
+    show();
+    el.addEventListener('input', () => { S[key] = +el.value; store.set(key, S[key]); show(); });
+  }
+  bindRange('speed','speed', v => v);
+  bindRange('size','size', v => v+'px');
+  bindRange('margin','margin', v => v+'%');
+  bindRange('cd','cd', v => v ? v+'s' : 'Off');
+
+  function bindToggle(id, key){
+    const el = $(id);
+    el.setAttribute('aria-pressed', S[key]);
+    el.addEventListener('click', () => { S[key] = !S[key]; store.set(key, S[key]); el.setAttribute('aria-pressed', S[key]); });
+  }
+  bindToggle('mirror','mirror');
+  bindToggle('flipv','flipv');
+  bindToggle('camera','camera');
+
+  $('clear').addEventListener('click', () => { ta.value=''; S.text=''; store.set('text',''); updateStats(); ta.focus(); });
+  $('paste').addEventListener('click', async () => {
+    try{
+      const t = await navigator.clipboard.readText();
+      if (t){ ta.value = t; S.text = t; store.set('text', t); updateStats(); return; }
+    }catch(e){}
+    ta.focus(); ta.select();
+    flashBtn($('paste'), 'Long‑press to paste');
+  });
+  function flashBtn(b, msg){ const o=b.textContent; b.textContent=msg; setTimeout(()=>b.textContent=o,1800); }
+
+  // ---------- Prompter ----------
+  const P = $('prompter'), scroller = $('scroller'), scriptEl = $('script'), stage = $('stage');
+  let pos = 0, playing = false, last = 0, raf = 0, elapsed = 0, hudTimer = 0, wakeLock = null, cdTimer = 0;
+  const leadFrac = 0.28; // reading line position from top
+
+  // speed 1..20 → pixels/sec scaled to font size so the *line* rate feels consistent
+  const pxPerSec = () => S.speed * 0.08 * S.size * 1.35; // speed 5 ≈ one line every 2.5s
+
+  const stageH = () => stage.clientHeight || window.innerHeight;
+  function layout(){
+    P.classList.toggle('camera', S.camera);
+    const h = stageH();
+    scriptEl.style.fontSize = S.size+'px';
+    scriptEl.style.lineHeight = '1.35';
+    scriptEl.style.paddingLeft = scriptEl.style.paddingRight = S.margin+'vw';
+    scriptEl.style.setProperty('--lead', (h*leadFrac)+'px');
+    $('guide').style.top = (h*leadFrac + S.size*0.15)+'px';
+    P.classList.toggle('mirror', S.mirror);
+    P.classList.toggle('flipv', S.flipv);
+    $('hudSpeed').textContent = S.speed;
+    clampPos(); render();
+  }
+  const maxPos = () => Math.max(0, scriptEl.scrollHeight - stageH());
+  const endPos = maxPos;
+  function clampPos(){ pos = Math.min(Math.max(0,pos), maxPos()); }
+  function render(){
+    scroller.style.transform = `translate3d(0,${-pos}px,0)`;
+    const end = endPos() || 1;
+    $('progress').style.width = Math.min(100, pos/end*100)+'%';
+    const remaining = Math.max(0, end - pos) / pxPerSec();
+    $('timer').textContent = `${fmt(elapsed)} · ~${fmt(remaining)} left`;
+  }
+
+  function tick(t){
+    if (!playing){ raf = 0; return; }
+    const dt = last ? Math.min(0.1, (t - last)/1000) : 0;
+    last = t;
+    pos += pxPerSec() * dt;
+    elapsed += dt;
+    if (pos >= endPos()){ pos = endPos(); render(); pause(); showHud(true); return; }
+    render();
+    raf = requestAnimationFrame(tick);
+  }
+
+  async function requestWake(){
+    try{ if ('wakeLock' in navigator){ wakeLock = await navigator.wakeLock.request('screen'); } }catch(e){ wakeLock = null; }
+  }
+  function releaseWake(){ try{ wakeLock && wakeLock.release(); }catch(e){} wakeLock = null; }
+
+  function play(){
+    if (playing) return;
+    if (pos >= endPos()) pos = 0;
+    playing = true; last = 0;
+    $('play').textContent = '❚❚';
+    requestWake();
+    raf = requestAnimationFrame(tick);
+    showHud(false);
+  }
+  function pause(){
+    playing = false; last = 0;
+    $('play').textContent = '▶';
+    if (raf) cancelAnimationFrame(raf), raf = 0;
+    releaseWake();
+  }
+  function toggle(){ cancelCountdown(); playing ? (pause(), showHud(true)) : play(); }
+
+  function countdownThenPlay(){ countdownThen(play); }
+  function countdownThen(fn){
+    if (!S.cd){ fn(); return; }
+    let n = S.cd; const el = $('countdown');
+    el.classList.remove('hidden'); el.textContent = n;
+    showHud(false);
+    cdTimer = setInterval(() => {
+      n--; if (n <= 0){ cancelCountdown(); fn(); } else el.textContent = n;
+    }, 1000);
+  }
+  function cancelCountdown(){ if (cdTimer){ clearInterval(cdTimer); cdTimer = 0; } $('countdown').classList.add('hidden'); }
+
+  // HUD auto-hide while playing
+  function showHud(stay){
+    $('hud').classList.remove('faded'); $('topbar').classList.remove('faded');
+    clearTimeout(hudTimer);
+    if (!stay) hudTimer = setTimeout(() => { if (playing || cdTimer){ $('hud').classList.add('faded'); $('topbar').classList.add('faded'); } }, 1800);
+  }
+
+  function open(){
+    if (!S.text.trim()){ ta.focus(); flashBtn($('start'),'Add a script first'); return; }
+    scriptEl.textContent = S.text;
+    $('editor').classList.add('hidden'); P.classList.remove('hidden');
+    pos = 0; elapsed = 0;
+    layout();
+    showHud(true);
+    const hint = $('hint');
+    if (!store.get('hinted', false)){ hint.style.opacity = 1; setTimeout(()=>hint.style.opacity=0, 3500); store.set('hinted', true); }
+    else hint.style.opacity = 0;
+    if (S.camera){ startCamera(); }   // camera mode: wait for the Record button
+    else countdownThenPlay();
+  }
+  function close(){
+    if (recording) stopRec(true);
+    pause(); cancelCountdown(); stopCamera(); hideReview();
+    try{ if (document.fullscreenElement) document.exitFullscreen(); }catch(e){}
+    P.classList.add('hidden'); $('editor').classList.remove('hidden');
+  }
+
+  $('start').addEventListener('click', open);
+  $('exit').addEventListener('click', e => { e.stopPropagation(); if (recording) stopRec(); else close(); });
+  $('restart').addEventListener('click', e => { e.stopPropagation(); pos = 0; elapsed = 0; render(); showHud(true); });
+  $('play').addEventListener('click', e => { e.stopPropagation(); toggle(); });
+
+  function setSpeed(d){ S.speed = Math.min(20, Math.max(1, S.speed + d)); store.set('speed', S.speed); $('speed').value = S.speed; $('speedOut').textContent = S.speed; $('hudSpeed').textContent = S.speed; render(); }
+  function setSize(d){
+    const ratio = pos / (scriptEl.scrollHeight || 1);
+    S.size = Math.min(120, Math.max(24, S.size + d)); store.set('size', S.size); $('size').value = S.size; $('sizeOut').textContent = S.size+'px';
+    layout(); pos = ratio * scriptEl.scrollHeight; clampPos(); render();
+  }
+  [['slower',()=>setSpeed(-1)],['faster',()=>setSpeed(1)],['smaller',()=>setSize(-4)],['bigger',()=>setSize(4)]].forEach(([id,fn]) => {
+    $(id).addEventListener('click', e => { e.stopPropagation(); fn(); showHud(!playing); });
+  });
+
+  // Touch: tap = play/pause, drag = manual scroll, double-tap = fullscreen
+  let startY = 0, startPos = 0, moved = false, wasPlaying = false, lastTap = 0, tapTimer = 0;
+  const dir = () => (S.flipv ? -1 : 1);
+  stage.addEventListener('pointerdown', e => {
+    startY = e.clientY; startPos = pos; moved = false; wasPlaying = playing;
+    stage.setPointerCapture(e.pointerId);
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!stage.hasPointerCapture(e.pointerId)) return;
+    const dy = e.clientY - startY;
+    if (!moved && Math.abs(dy) > 8){ moved = true; if (playing) pause(); cancelCountdown(); showHud(true); }
+    if (moved){ pos = startPos - dy * dir(); clampPos(); render(); }
+  });
+  stage.addEventListener('pointerup', e => {
+    if (moved){ if (wasPlaying) play(); return; }
+    const now = Date.now();
+    if (now - lastTap < 300){
+      clearTimeout(tapTimer); lastTap = 0;
+      try{
+        if (!document.fullscreenElement) (P.requestFullscreen || P.webkitRequestFullscreen).call(P).catch?.(()=>{});
+        else document.exitFullscreen();
+      }catch(err){}
+      return;
+    }
+    lastTap = now;
+    tapTimer = setTimeout(() => { toggle(); }, 260);
+  });
+
+  // Mouse wheel / keyboard (for desktop testing or Bluetooth remotes)
+  stage.addEventListener('wheel', e => { e.preventDefault(); pos += e.deltaY * dir(); clampPos(); render(); }, {passive:false});
+  document.addEventListener('keydown', e => {
+    if (P.classList.contains('hidden')) return;
+    const k = e.key;
+    if (k === ' ' || k === 'Enter' || k === 'MediaPlayPause'){ e.preventDefault(); toggle(); }
+    else if (k === 'ArrowUp'){ e.preventDefault(); setSpeed(1); }
+    else if (k === 'ArrowDown'){ e.preventDefault(); setSpeed(-1); }
+    else if (k === 'PageDown' || k === 'ArrowRight'){ pos += window.innerHeight*0.4; clampPos(); render(); }
+    else if (k === 'PageUp' || k === 'ArrowLeft'){ pos -= window.innerHeight*0.4; clampPos(); render(); }
+    else if (k === 'Escape'){ close(); }
+  });
+
+  window.addEventListener('resize', () => { if (!P.classList.contains('hidden')) layout(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden){ if (recording) stopRec(); if (playing){ pause(); showHud(true); } }
+    else if (playing || recording) requestWake();
+  });
+
+  // ---------- Front camera & recording ----------
+  const cam = $('cam');
+  let stream = null, rec = null, chunks = [], recording = false, recType = '', recStartAt = 0, recTick = 0, take = null;
+
+  function camMsg(text){ const m = $('camMsg'); if (text){ m.textContent = text; m.classList.remove('hidden'); } else m.classList.add('hidden'); }
+
+  async function startCamera(){
+    camMsg('');
+    if (stream) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      camMsg("The camera isn't available here. Open the installed app, or your app link in Safari (iPhone) or Chrome (Android).");
+      return false;
+    }
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({
+        video:{ facingMode:'user', width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30} },
+        audio:{ echoCancellation:true, noiseSuppression:true }
+      });
+      cam.srcObject = stream;
+      try{ await cam.play(); }catch(e){}
+      return true;
+    }catch(e){
+      stream = null;
+      camMsg(e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')
+        ? 'Camera or microphone access was blocked. Allow both for this app in your phone\'s browser settings, then tap Record again.'
+        : "Couldn't start the camera" + (e && e.message ? ': ' + e.message : '.'));
+      return false;
+    }
+  }
+  function stopCamera(){
+    if (stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+    cam.srcObject = null;
+  }
+
+  function pickType(){
+    if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
+    const types = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1,mp4a','video/mp4',
+                   'video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+    return types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+  }
+
+  function setRecUI(on){
+    recording = on;
+    $('rec').classList.toggle('on', on);
+    $('recLabel').textContent = on ? 'Stop' : 'Record';
+    $('recInd').classList.toggle('hidden', !on);
+    P.classList.toggle('recording', on);
+    $('exit').textContent = on ? '■ Stop' : '✕ Edit';
+    clearInterval(recTick);
+    if (on){
+      const upd = () => $('recInd').textContent = 'REC ' + fmt((Date.now() - recStartAt) / 1000);
+      upd(); recTick = setInterval(upd, 500);
+    }
+  }
+
+  async function startRec(){
+    if (!(await startCamera())) return;
+    if (!window.MediaRecorder){ camMsg("Recording isn't supported in this browser. Try Safari on iPhone or Chrome on Android."); return; }
+    pos = 0; elapsed = 0; render();
+    $('rec').classList.add('on'); $('recLabel').textContent = 'Cancel';
+    countdownThen(() => {
+      chunks = []; recType = pickType();
+      try{
+        rec = new MediaRecorder(stream, recType ? { mimeType: recType, videoBitsPerSecond: 6000000 } : undefined);
+      }catch(e){
+        try{ rec = new MediaRecorder(stream); }catch(e2){ camMsg("Couldn't start recording on this device."); setRecUI(false); return; }
+      }
+      rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop = finishRec;
+      rec.start(1000);
+      recStartAt = Date.now();
+      setRecUI(true);
+      requestWake();
+      play();
+    });
+  }
+
+  let discardNext = false;
+  function stopRec(discard){
+    discardNext = !!discard;
+    pause();
+    if (rec && rec.state !== 'inactive') rec.stop();
+    setRecUI(false);
+    showHud(true);
+  }
+
+  function finishRec(){
+    const type = (rec && rec.mimeType) || recType || 'video/mp4';
+    rec = null;
+    if (discardNext || !chunks.length){ chunks = []; return; }
+    const blob = new Blob(chunks, { type }); chunks = [];
+    const ext = type.includes('mp4') ? 'mp4' : 'webm';
+    const d = new Date(), z = n => String(n).padStart(2,'0');
+    const name = `teleprompter-${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}-${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}.${ext}`;
+    if (take) URL.revokeObjectURL(take.url);
+    take = { blob, name, type, url: URL.createObjectURL(blob) };
+    showReview();
+  }
+
+  function showReview(){
+    const v = $('playback'); v.src = take.url;
+    const file = new File([take.blob], take.name, { type: take.type });
+    const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
+    $('shareVid').classList.toggle('hidden', !canShare);
+    const mb = (take.blob.size / 1048576).toFixed(1);
+    $('saveNote').textContent = canShare
+      ? `${mb} MB · "Save to Photos" opens the share menu — choose Save Video.`
+      : `${mb} MB · Download saves the video to your phone's Downloads/Files.`;
+    $('discard').textContent = 'Delete'; delArmed = false;
+    $('review').classList.remove('hidden');
+  }
+  function hideReview(){
+    const v = $('playback'); try{ v.pause(); }catch(e){} v.removeAttribute('src'); v.load();
+    $('review').classList.add('hidden');
+  }
+
+  $('rec').addEventListener('click', e => {
+    e.stopPropagation(); camMsg('');
+    if (recording) stopRec();
+    else if (cdTimer){ cancelCountdown(); $('rec').classList.remove('on'); $('recLabel').textContent = 'Record'; showHud(true); }
+    else startRec();
+  });
+
+  $('shareVid').addEventListener('click', async () => {
+    if (!take) return;
+    try{
+      await navigator.share({ files: [new File([take.blob], take.name, { type: take.type })], title: 'Teleprompter take' });
+    }catch(e){
+      if (e && e.name !== 'AbortError') $('saveNote').textContent = "Couldn't open the share menu — try Download instead.";
+    }
+  });
+  $('download').addEventListener('click', () => {
+    if (!take) return;
+    const a = document.createElement('a'); a.href = take.url; a.download = take.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    $('saveNote').textContent = 'Saved to Downloads / Files.';
+  });
+  let delArmed = false;
+  $('discard').addEventListener('click', () => {
+    if (!delArmed){ delArmed = true; $('discard').textContent = 'Tap again'; setTimeout(() => { delArmed = false; $('discard').textContent = 'Delete'; }, 2500); return; }
+    if (take){ URL.revokeObjectURL(take.url); take = null; }
+    hideReview();
+  });
+  $('again').addEventListener('click', () => { hideReview(); pos = 0; elapsed = 0; render(); showHud(true); });
+
+  // Tapping the camera picture (below the script) also plays / pauses
+  cam.addEventListener('click', () => { if (!$('review').classList.contains('hidden')) return; toggle(); });
+})();
+
+// ---------- Installable app ----------
+(() => {
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+  const box = document.getElementById('install'), btn = document.getElementById('installBtn'), msg = document.getElementById('installMsg');
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  let dismissed = false; try { dismissed = localStorage.getItem('tp_installX') === '1'; } catch (e) {}
+  if (standalone || dismissed) return;
+  document.getElementById('installX').onclick = () => { box.classList.add('hidden'); try { localStorage.setItem('tp_installX', '1'); } catch (e) {} };
+
+  let deferred = null;
+  window.addEventListener('beforeinstallprompt', e => {           // Android / Chrome
+    e.preventDefault(); deferred = e;
+    msg.textContent = 'Add it to your home screen — free, works offline.';
+    btn.classList.remove('hidden'); box.classList.remove('hidden');
+  });
+  btn.onclick = async () => { if (!deferred) return; deferred.prompt(); await deferred.userChoice.catch(() => {}); deferred = null; box.classList.add('hidden'); };
+  window.addEventListener('appinstalled', () => box.classList.add('hidden'));
+
+  const ua = navigator.userAgent;
+  const isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS) {                                                     // iPhone / iPad: no prompt API, show instructions
+    msg.innerHTML = 'Tap <b style="display:inline">Share</b> (□↑) then <b style="display:inline">Add to Home Screen</b>.';
+    box.classList.remove('hidden');
+  }
+})();
+</script>
+</body>
+</html>
